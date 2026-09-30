@@ -6,7 +6,7 @@ API Flask avec une base PostgreSQL, conteneurisée avec Docker, avec une CI/CD G
 
 ```
 cd application
-cp .env.example .env        # mettre un mot de passe dans POSTGRES_PASSWORD
+cp .env.example .env
 docker compose up -d --build
 ```
 
@@ -20,7 +20,7 @@ Tests :
 cd application
 docker compose up -d db
 pip install -r config/requirements.txt -r config/requirements-dev.txt
-export DATABASE_URL=postgresql://app:<mot_de_passe>@localhost:5432/app
+export DATABASE_URL=postgresql://app:Local123@localhost:5432/app
 pytest
 ```
 
