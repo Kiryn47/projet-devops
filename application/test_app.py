@@ -21,7 +21,7 @@ def test_health_ko_sans_base():
 
 def test_ajout_item_en_base(client):
     response = client.post("/items", json={"name": "test"})
-    assert response.status_code == 201
+    assert response.status_code == 999
     item = response.get_json()
     assert item in client.get("/items").get_json()
 
