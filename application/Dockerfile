@@ -15,4 +15,4 @@ USER app
 EXPOSE 8000
 HEALTHCHECK --interval=15s --timeout=3s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
-CMD ["gunicorn", "-b", "0.0.0.0:8001", "--workers", "1", "--threads", "4", "app:create_app()"]
+CMD ["gunicorn", "-b", "0.0.0.0:8000", "--workers", "1", "--threads", "4", "app:create_app()"]
