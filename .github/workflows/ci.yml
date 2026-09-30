@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  yaml-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: >-
+          pipx run yamllint
+          -d "{extends: default, rules: {line-length: {max: 130}, truthy: {check-keys: false}, document-start: disable}}"
+          .
+
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-python
+        with:
+          python-version: "3.12"
+      - run: flake8 --config application/config/flake8-config.txt application
+
+  test:
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    services:
+      postgres:
+        image: postgres:16.4-alpine
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: app
+        ports:
+          - 5432:5432
+        options: --health-cmd "pg_isready -U app" --health-interval 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://app:test@localhost:5432/app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-python
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pytest --junitxml=reports/junit.xml --cov=app --cov-report=xml:reports/coverage.xml
+        working-directory: application
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-reports-${{ matrix.python-version }}
+          path: application/reports/
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t devops-app application
+
+  ci-ok:
+    if: always()
+    needs: [yaml-lint, lint, test, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: test-reports-*
+          path: reports
+      - run: ls -R reports
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+        run: exit 1

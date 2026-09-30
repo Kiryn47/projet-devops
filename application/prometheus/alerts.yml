@@ -1,0 +1,21 @@
+groups:
+  - name: app
+    rules:
+      - alert: TauxErreurs5xxEleve
+        expr: |
+          sum(rate(http_requests_total{code=~"5..", endpoint!="/metrics"}[5m]))
+          / sum(rate(http_requests_total{endpoint!="/metrics"}[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Plus de 5% d'erreurs 5xx depuis 5 minutes"
+
+      - alert: LatenceP95Elevee
+        expr: |
+          histogram_quantile(0.95, sum by (le, endpoint) (rate(http_request_duration_seconds_bucket[5m]))) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p95 au dessus de 500 ms sur {{ $labels.endpoint }}"

@@ -1,0 +1,97 @@
+name: CD
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [production]
+        default: production
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  VERSION: "1.0"
+
+jobs:
+  build-push:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      image: ${{ steps.tags.outputs.image }}:${{ steps.tags.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - id: tags
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          echo "sha=${SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION.$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: application
+          push: true
+          build-args: |
+            APP_VERSION=${{ steps.tags.outputs.version }}
+            GIT_SHA=${{ steps.tags.outputs.sha }}
+          tags: |
+            ${{ steps.tags.outputs.image }}:latest
+            ${{ steps.tags.outputs.image }}:${{ steps.tags.outputs.sha }}
+            ${{ steps.tags.outputs.image }}:${{ steps.tags.outputs.version }}
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+  deploy:
+    needs: build-push
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, deploy]
+    timeout-minutes: 10
+    environment: ${{ inputs.environment || 'production' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Deploy + healthcheck + rollback
+        shell: pwsh
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          IMAGE: ${{ needs.build-push.outputs.image }}
+        run: |
+          $compose = @("compose", "-p", "devops-prod", "-f", "application/docker-compose.yml")
+          $appId = docker @compose ps -q app
+          $previous = if ($appId) { docker inspect --format "{{.Config.Image}}" $appId }
+          Write-Host "Image actuelle : $previous"
+
+          $env:APP_IMAGE = $env:IMAGE
+          docker @compose pull app
+          docker @compose up -d --no-build
+
+          curl --fail --retry 3 --retry-delay 5 --retry-all-errors http://localhost:8000/health
+          if ($LASTEXITCODE -eq 0) { exit 0 }
+
+          Write-Host "Healthcheck KO, rollback vers $previous"
+          if ($previous) {
+            $env:APP_IMAGE = $previous
+            docker pull $previous
+            docker @compose up -d --no-build app
+          }
+          exit 1

@@ -1,0 +1,6 @@
+.git
+.env
+__pycache__
+test_app.py
+prometheus
+docker-compose.yml
