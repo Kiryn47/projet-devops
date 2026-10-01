@@ -14,15 +14,7 @@ docker compose up -d --build
 - Métriques : http://localhost:8000/metrics
 - Prometheus : http://localhost:9090
 
-Tests :
-
-```
-cd application
-docker compose up -d db
-pip install -r config/requirements.txt -r config/requirements-dev.txt
-export DATABASE_URL=postgresql://app:Local123@localhost:5432/app
-pytest
-```
+Les tests tournent automatiquement dans la CI, avec une base Postgres.
 
 ## Routes
 
